@@ -10,6 +10,7 @@ interface MonitoredPage {
   name: string | null;
   status: string;
   last_checked: string | null;
+  last_viewed_post_url: string | null;
 }
 
 interface PostPreview {
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const [isTestingScrape, setIsTestingScrape] = useState(false);
   const [scrapeResults, setScrapeResults] = useState<PostPreview[] | null>(null);
   const [showScrapeModal, setShowScrapeModal] = useState(false);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
 
   const fetchPages = useCallback(async () => {
     const res = await fetch("/api/pages");
@@ -153,6 +155,7 @@ export default function Dashboard() {
       }
 
       const requestId = data.requestId;
+      setCurrentRequestId(requestId);
 
       // Poll for results
       const pollInterval = setInterval(async () => {
@@ -164,6 +167,16 @@ export default function Dashboard() {
           setIsTestingScrape(false);
           setScrapeResults(statusData.posts);
           setShowScrapeModal(true);
+
+          // Automatically mark as viewed
+          await fetch("/api/test-scrape/mark-viewed", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requestId }),
+          });
+
+          // Refresh pages to show updated last_viewed
+          fetchPages();
         } else if (statusData.status === "error") {
           clearInterval(pollInterval);
           setIsTestingScrape(false);
@@ -280,6 +293,7 @@ export default function Dashboard() {
                     <tr>
                       <th className="px-6 py-3 text-left font-bold text-gray-500">Puslapis</th>
                       <th className="px-6 py-3 text-left font-bold text-gray-500">Statusas</th>
+                      <th className="px-6 py-3 text-left font-bold text-gray-500">Peržiūrėta</th>
                       <th className="px-6 py-3 text-right font-bold text-gray-500">Veiksmai</th>
                     </tr>
                   </thead>
@@ -294,6 +308,21 @@ export default function Dashboard() {
                           <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${page.status ==='active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                             {page.status === 'active' ? 'Aktyvus' : 'Klaida'}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {page.last_viewed_post_url ? (
+                            <a
+                              href={page.last_viewed_post_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-green-600 hover:underline"
+                              title="Peržiūrėti paskutinį postą"
+                            >
+                              ✓ Peržiūrėta
+                            </a>
+                          ) : (
+                            <span className="text-xs text-gray-400">Neperžiūrėta</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right flex justify-end gap-3">
                           <button onClick={() => handleTestPage(page.id)} disabled={!!testStatus[page.id]} className="text-blue-600 font-bold">{testStatus[page.id] || "Test"}</button>

@@ -116,7 +116,7 @@ async function run() {
   console.log("Starting scraper at", new Date().toLocaleString());
   
   const res = await db.execute(`
-    SELECT mp.*, u.default_discord_webhook_url 
+    SELECT mp.*, u.default_discord_webhook_url
     FROM monitored_pages mp
     JOIN users u ON mp.user_id = u.id
     WHERE mp.status = 'active'
@@ -137,10 +137,14 @@ async function run() {
     console.log(`Scraping ${pageRow.name || pageRow.url}...`);
     try {
       const postInfo = await scrapePage(browser, pageRow);
-      
-      if (postInfo.postUrl !== pageRow.last_post_id) {
-        console.log(`New post found for ${pageRow.name}: ${postInfo.postUrl}`);
-        
+
+      // Use last_viewed_post_url to check if there's a new post
+      // If last_viewed is null, use last_post_id as fallback
+      const lastViewed = pageRow.last_viewed_post_url || pageRow.last_post_id;
+
+      if (postInfo.postUrl !== lastViewed) {
+        console.log(`New post found for ${pageRow.name}: ${postInfo.postUrl} (last viewed: ${lastViewed || 'none'})`);
+
         // Prioritetas: 1. Puslapio webhook, 2. Globalus vartotojo webhook, 3. .env webhook
         const webhookUrl = pageRow.discord_webhook_url || pageRow.default_discord_webhook_url || process.env.DISCORD_WEBHOOK_URL;
 
@@ -152,13 +156,13 @@ async function run() {
           postInfo.imageUrl
         );
 
-        // Update DB
+        // Update both last_post_id and last_viewed_post_url
         await db.execute({
-          sql: "UPDATE monitored_pages SET last_post_id = ?, last_checked = CURRENT_TIMESTAMP WHERE id = ?",
-          args: [postInfo.postUrl, pageRow.id]
+          sql: "UPDATE monitored_pages SET last_post_id = ?, last_viewed_post_url = ?, last_checked = CURRENT_TIMESTAMP WHERE id = ?",
+          args: [postInfo.postUrl, postInfo.postUrl, pageRow.id]
         });
       } else {
-        console.log(`No new posts for ${pageRow.name}.`);
+        console.log(`No new posts for ${pageRow.name} (already viewed: ${lastViewed})`);
         await db.execute({
           sql: "UPDATE monitored_pages SET last_checked = CURRENT_TIMESTAMP WHERE id = ?",
           args: [pageRow.id]

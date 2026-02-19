@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS monitored_pages (
   last_checked DATETIME,
   status TEXT DEFAULT 'active',
   discord_webhook_url TEXT,
+  last_viewed_post_url TEXT,
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
