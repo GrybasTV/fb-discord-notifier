@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import puppeteer from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { db } from "@/lib/db";
+import crypto from "crypto";
 
-puppeteer.use(StealthPlugin());
-
+// POST - Create test request and trigger GitHub Actions
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
 
@@ -24,89 +23,110 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Tinkamas Facebook URL" }, { status: 400 });
   }
 
-  // Get FB_COOKIES from environment (set in Vercel)
-  const fbCookies = process.env.FB_COOKIES;
+  // Generate unique request ID
+  const requestId = crypto.randomUUID();
 
-  if (!fbCookies) {
-    return NextResponse.json(
-      { error: "Nenurodyti FB_COOKIES environment variable" },
-      { status: 500 }
-    );
-  }
-
-  let browser;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    // Create test request in database
+    await db().execute({
+      sql: `
+        INSERT INTO test_scrape_requests (id, user_id, url, status)
+        VALUES (?, ?, ?, 'pending')
+      `,
+      args: [requestId, session.user.id, url],
     });
 
-    const page = await browser.newPage();
+    // Trigger GitHub Actions workflow
+    // Note: You need to set GITHUB_TOKEN in Vercel environment variables
+    const workflowUrl = `https://api.github.com/repos/GrybasTV/fb-discord-notifier/actions/workflows/test-scrape.yaml/dispatches`;
 
-    // Set cookies
-    const cookies = JSON.parse(fbCookies);
-    await page.setCookie(...cookies);
+    const githubToken = process.env.GITHUB_TOKEN;
 
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    if (!githubToken) {
+      return NextResponse.json(
+        {
+          error: "GITHUB_TOKEN nenurodytas. Susisiekite su administratorium.",
+          note: "Reikia nustatyti GITHUB_TOKEN Vercel environment variables",
+        },
+        { status: 500 }
+      );
+    }
 
-    // Wait for posts
-    const postSelector = '[role="article"]';
-    await page.waitForSelector(postSelector, { timeout: 15000 });
-
-    // Get last 3 posts
-    const posts = await page.evaluate(() => {
-      const posts = Array.from(document.querySelectorAll('[role="article"]'));
-      // Filter only real posts with actual text
-      const realPosts = posts.filter((p) => {
-        const elem = p as HTMLElement;
-        return elem.innerText && elem.innerText.length > 50;
-      });
-
-      return realPosts.slice(0, 3).map((post) => {
-        const elem = post as HTMLElement;
-        const linkTag = Array.from(post.querySelectorAll("a")).find(
-          (a) => a.href.includes("/posts/") || a.href.includes("pfbid") || a.href.includes("/reel/")
-        );
-        const postUrl = linkTag ? linkTag.href.split("?")[0] : null;
-
-        const textElement =
-          post.querySelector('[data-ad-preview="message"]') ||
-          post.querySelector('[data-testid="post_message"]');
-        const text = textElement
-          ? (textElement as HTMLElement).innerText
-          : elem.innerText.substring(0, 200) + "...";
-
-        const imgElement = post.querySelector('img[src*="fbcdn"]') as HTMLImageElement;
-        const imageUrl = imgElement ? imgElement.src : null;
-
-        return {
-          postUrl,
-          text: text.substring(0, 500),
-          imageUrl,
-        };
-      });
+    await fetch(workflowUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref: "master",
+        inputs: {
+          url: url,
+          request_id: requestId,
+        },
+      }),
     });
-
-    await browser.close();
 
     return NextResponse.json({
       success: true,
-      posts,
-      message: `Rasti ${posts.length} paskutiniai įrašai`,
+      requestId,
+      message: "Testas paleistas. Rezultatai bus paruošti po 1-2 minučių.",
     });
   } catch (error: unknown) {
-    if (browser) {
-      await browser.close();
-    }
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Test scrape error:", message);
-    return NextResponse.json(
-      {
-        error: "Nepavyko nuskaityti Facebook puslapio: " + message,
-        note: "Ši funkcija veikia tik lokaliai su Puppeteer. Vercel deployment reikalautų išorinės browser service.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Nepavyko paleisti testo: " + message }, { status: 500 });
+  }
+}
+
+// GET - Check test request status
+export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const requestId = searchParams.get("requestId");
+
+  if (!requestId) {
+    return NextResponse.json({ error: "Nenurodytas requestId" }, { status: 400 });
+  }
+
+  try {
+    const res = await db().execute({
+      sql: "SELECT * FROM test_scrape_requests WHERE id = ? AND user_id = ?",
+      args: [requestId, session.user.id],
+    });
+
+    const request = res.rows[0];
+
+    if (!request) {
+      return NextResponse.json({ error: "Request nerastas" }, { status: 404 });
+    }
+
+    let posts = null;
+    if (request.posts) {
+      try {
+        posts = JSON.parse(request.posts as string);
+      } catch (e) {
+        // Invalid JSON
+      }
+    }
+
+    return NextResponse.json({
+      id: request.id,
+      status: request.status,
+      url: request.url,
+      posts,
+      created_at: request.created_at,
+      completed_at: request.completed_at,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Get test status error:", message);
+    return NextResponse.json({ error: "Nepavyko gauti būsenos" }, { status: 500 });
   }
 }

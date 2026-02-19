@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
   if (!userId) {
     return NextResponse.json({ error: "Vartotojo ID nerastas sesijoje" }, { status: 400 });
   }
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
 
   await db().execute({
     sql: "INSERT INTO monitored_pages (id, user_id, url, name, discord_webhook_url, status) VALUES (?, ?, ?, ?, ?, 'active')",
-    args: [id, (session.user as any).id, url, name || null, discord_webhook_url || null]
+    args: [id, session.user.id, url, name || null, discord_webhook_url || null]
   });
 
   return NextResponse.json({ success: true, id });
@@ -63,7 +63,7 @@ export async function DELETE(req: Request) {
 
   await db().execute({
     sql: "DELETE FROM monitored_pages WHERE id = ? AND user_id = ?",
-    args: [id, (session.user as any).id]
+    args: [id, session.user.id]
   });
 
   return NextResponse.json({ success: true });

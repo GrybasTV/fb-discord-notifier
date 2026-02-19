@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Worker files are CommonJS and use require():
+    "worker/**",
   ]),
 ]);
 

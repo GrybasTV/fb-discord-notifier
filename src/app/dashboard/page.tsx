@@ -136,6 +136,7 @@ export default function Dashboard() {
 
     setIsTestingScrape(true);
     try {
+      // Start test scrape
       const res = await fetch("/api/test-scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -144,16 +145,44 @@ export default function Dashboard() {
 
       const data = await res.json();
 
-      if (res.ok && data.success) {
-        setScrapeResults(data.posts);
-        setShowScrapeModal(true);
-      } else {
-        alert(data.error || "Nepavyko nuskaityti puslapio");
+      if (!res.ok || !data.success) {
+        alert(data.error || "Nepavyko paleisti testo");
+        setIsTestingScrape(false);
+        return;
       }
+
+      const requestId = data.requestId;
+
+      // Poll for results
+      const pollInterval = setInterval(async () => {
+        const statusRes = await fetch(`/api/test-scrape?requestId=${requestId}`);
+        const statusData = await statusRes.json();
+
+        if (statusData.status === "completed") {
+          clearInterval(pollInterval);
+          setIsTestingScrape(false);
+          setScrapeResults(statusData.posts);
+          setShowScrapeModal(true);
+        } else if (statusData.status === "error") {
+          clearInterval(pollInterval);
+          setIsTestingScrape(false);
+          const errorMsg = statusData.posts?.error || "Nepavyko nuskaityti puslapio";
+          alert("Klaida: " + errorMsg);
+        }
+        // If still pending, continue polling
+      }, 3000); // Poll every 3 seconds
+
+      // Timeout after 2 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (isTestingScrape) {
+          setIsTestingScrape(false);
+          alert("Testas užtruko per ilgai. Pabandykite vėliau.");
+        }
+      }, 120000);
     } catch (error) {
-      alert("Klaida: " + (error instanceof Error ? error.message : "Unknown error"));
-    } finally {
       setIsTestingScrape(false);
+      alert("Klaida: " + (error instanceof Error ? error.message : "Unknown error"));
     }
   };
 

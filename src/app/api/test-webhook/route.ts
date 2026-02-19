@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (pageId) {
     const res = await db().execute({
       sql: "SELECT * FROM monitored_pages WHERE id = ? AND user_id = ?",
-      args: [pageId, (session.user as any).id]
+      args: [pageId, session.user.id]
     });
     const page = res.rows[0];
     if (page) {
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   if (!targetWebhook) {
     const userRes = await db().execute({
       sql: "SELECT default_discord_webhook_url FROM users WHERE id = ?",
-      args: [(session.user as any).id]
+      args: [session.user.id]
     });
     targetWebhook = userRes.rows[0]?.default_discord_webhook_url;
   }
@@ -57,8 +57,9 @@ export async function POST(req: Request) {
 
     await axios.post(targetWebhook, payload);
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Test webhook error:", error.message);
-    return NextResponse.json({ error: "Nepavyko išsiųsti pranešimo į Discord: " + error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Test webhook error:", message);
+    return NextResponse.json({ error: "Nepavyko išsiųsti pranešimo į Discord: " + message }, { status: 500 });
   }
 }

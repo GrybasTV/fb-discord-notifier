@@ -1,0 +1,42 @@
+name: Test Scrape Facebook Page
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Facebook page URL to test'
+        required: true
+        type: string
+      request_id:
+        description: 'Request ID from API'
+        required: true
+        type: string
+
+jobs:
+  test-scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          sudo apt-get update
+          sudo apt-get install -y libgbm-dev libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2
+
+      - name: Run test scrape
+        id: scrape
+        run: node worker/test-scrape-github.js "${{ inputs.url }}" "${{ inputs.request_id }}"
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          FB_COOKIES: ${{ secrets.FB_COOKIES }}
+
+      - name: Upload results
+        if: always()
+        run: |
+          echo "Scrape completed. Results saved to database with request_id: ${{ inputs.request_id }}"
