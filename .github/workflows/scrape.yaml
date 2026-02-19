@@ -1,7 +1,7 @@
 name: Facebook Scraper
 on:
     schedule:
-        - cron: "17 */4 * * *" # Every 4 hours at minute 17
+        - cron: "*/30 * * * *" # Every 30 minutes
     workflow_dispatch: # Manual run
 
 jobs:

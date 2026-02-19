@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 interface MonitoredPage {
   id: string;
@@ -10,6 +10,12 @@ interface MonitoredPage {
   name: string | null;
   status: string;
   last_checked: string | null;
+}
+
+interface PostPreview {
+  postUrl: string | null;
+  text: string;
+  imageUrl: string | null;
 }
 
 export default function Dashboard() {
@@ -23,33 +29,44 @@ export default function Dashboard() {
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, string>>({});
+  const [isTestingScrape, setIsTestingScrape] = useState(false);
+  const [scrapeResults, setScrapeResults] = useState<PostPreview[] | null>(null);
+  const [showScrapeModal, setShowScrapeModal] = useState(false);
 
-  const fetchPages = async () => {
-    setLoading(true);
+  const fetchPages = useCallback(async () => {
     const res = await fetch("/api/pages");
     if (res.ok) {
       const data = await res.json();
       setPages(data);
     }
-    setLoading(false);
-  };
+  }, []);
 
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     const res = await fetch("/api/user/settings");
     if (res.ok) {
       const data = await res.json();
       setGlobalWebhook(data.default_discord_webhook_url || "");
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
     } else if (status === "authenticated") {
-      fetchPages();
-      fetchSettings();
+      let isMounted = true;
+      const fetchData = async () => {
+        setLoading(true);
+        await Promise.all([fetchPages(), fetchSettings()]);
+        if (isMounted) {
+          setLoading(false);
+        }
+      };
+      fetchData();
+      return () => {
+        isMounted = false;
+      };
     }
-  }, [status, router]);
+  }, [status, router, fetchPages, fetchSettings]);
 
   const handleSaveSettings = async () => {
     setIsSavingSettings(true);
@@ -108,6 +125,35 @@ export default function Dashboard() {
       const data = await res.json();
       setTestStatus({ ...testStatus, [pageId]: "KLAIDA! ❌" });
       alert(data.error || "Nepavyko išsiųsti pranešimo.");
+    }
+  };
+
+  const handleTestScrape = async () => {
+    if (!url) {
+      alert("Įveskite puslapio URL!");
+      return;
+    }
+
+    setIsTestingScrape(true);
+    try {
+      const res = await fetch("/api/test-scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setScrapeResults(data.posts);
+        setShowScrapeModal(true);
+      } else {
+        alert(data.error || "Nepavyko nuskaityti puslapio");
+      }
+    } catch (error) {
+      alert("Klaida: " + (error instanceof Error ? error.message : "Unknown error"));
+    } finally {
+      setIsTestingScrape(false);
     }
   };
 
@@ -176,9 +222,19 @@ export default function Dashboard() {
                     value={name} onChange={(e) => setName(e.target.value)}
                   />
                 </div>
-                <button type="submit" disabled={isAdding} className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-bold disabled:opacity-50">
-                  {isAdding ? "Pridedama..." : "Pridėti sekimą"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestScrape}
+                    disabled={isTestingScrape || !url}
+                    className="flex-1 bg-gray-600 text-white rounded-lg py-2.5 text-sm font-bold disabled:opacity-50"
+                  >
+                    {isTestingScrape ? "Testuojama..." : "Testuoti"}
+                  </button>
+                  <button type="submit" disabled={isAdding} className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-bold disabled:opacity-50">
+                    {isAdding ? "Pridedama..." : "Pridėti"}
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -221,6 +277,45 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* Scrape Results Modal */}
+        {showScrapeModal && scrapeResults && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+                <h3 className="text-lg font-bold">Paskutiniai įrašai ({scrapeResults.length})</h3>
+                <button onClick={() => setShowScrapeModal(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+              </div>
+              <div className="p-4 space-y-4">
+                {scrapeResults.map((post, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-start gap-4">
+                      {post.imageUrl && (
+                        <img src={post.imageUrl} alt="" className="w-20 h-20 object-cover rounded" />
+                      )}
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-700 mb-2">{post.text}</p>
+                        {post.postUrl && (
+                          <a href={post.postUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                            Peržiūrėti originalą →
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4">
+                <button
+                  onClick={() => setShowScrapeModal(false)}
+                  className="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-green-700"
+                >
+                  Gerai, pridėti šį puslapį
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
