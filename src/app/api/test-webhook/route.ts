@@ -44,14 +44,41 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Nenurodytas Discord Webhook URL" }, { status: 400 });
   }
 
+  // Get page details for the report (refetch if needed or use existing page obj)
+  let pageDetails = {
+    last_checked: "Niekada",
+    last_post: "Nėra",
+    status: "Nežinoma"
+  };
+
+  if (pageId) {
+     const res = await db().execute({
+       sql: "SELECT * FROM monitored_pages WHERE id = ?",
+       args: [pageId]
+     });
+     const row = res.rows[0];
+     if (row) {
+        pageDetails = {
+            last_checked: row.last_checked ? new Date(row.last_checked as string).toLocaleString('lt-LT') : "Niekada",
+            last_post: (row.last_post_id as string) || "Nėra",
+            status: (row.status as string) === 'active' ? '✅ Aktyvus' : '❌ Klaida/Sustabdytas'
+        };
+     }
+  }
+
   try {
     const payload = {
       embeds: [{
-        title: `Testinis pranešimas: ${pageName}`,
-        description: "Jei matote šią žinutę, vadinasi Jūsų FB Notifier ryšys su Discord veikia teisingai! ✅",
+        title: `🟢 Ryšio Testas: ${pageName}`,
+        description: "Discord Webhook veikia teisingai! Štai ką mato Scraperis duomenų bazėje:",
         color: 3066993, // Green
+        fields: [
+            { name: "Paskutinis tikrinimas", value: pageDetails.last_checked, inline: true },
+            { name: "Statusas", value: pageDetails.status, inline: true },
+            { name: "Paskutinis rastas įrašas", value: pageDetails.last_post }
+        ],
         timestamp: new Date().toISOString(),
-        footer: { text: "FB Notifier Test" }
+        footer: { text: "FB Notifier • Status Report" }
       }]
     };
 
