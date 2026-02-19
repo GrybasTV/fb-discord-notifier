@@ -90,18 +90,32 @@ export default function Dashboard() {
     alert("Nustatymai išsaugoti!");
   };
 
+  const [confirmScrape, setConfirmScrape] = useState(false);
+
   const handleTriggerScrape = async () => {
-    if (!confirm("Ar tikrai norite paleisti scraper'į dabar? Tai inicijuos GitHub Action.")) return;
-    setIsScraping(true);
-    const res = await fetch("/api/trigger-scrape", { method: "POST" });
-    const data = await res.json();
-    setIsScraping(false);
+    if (!confirmScrape) {
+      setConfirmScrape(true);
+      setTimeout(() => setConfirmScrape(false), 3000); // Reset after 3s if not confirmed
+      return;
+    }
     
-    if (res.ok) {
-        alert("✅ Sėkmė: " + data.message);
-    } else {
-        alert("❌ Klaida: " + (data.error || "Nepavyko paleisti."));
-        console.error(data);
+    setConfirmScrape(false);
+    setIsScraping(true);
+    
+    try {
+        const res = await fetch("/api/trigger-scrape", { method: "POST" });
+        const data = await res.json();
+        
+        if (res.ok) {
+            alert("✅ Sėkmė: " + data.message);
+        } else {
+            alert("❌ Klaida: " + (data.error || "Nepavyko paleisti."));
+            console.error(data);
+        }
+    } catch (e) {
+        alert("❌ Tinklo klaida bandant paleisti scraperį.");
+    } finally {
+        setIsScraping(false);
     }
   };
 
@@ -309,8 +323,12 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex gap-2">
-              <button onClick={handleTriggerScrape} disabled={isScraping} className="bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold disabled:opacity-50 h-[42px] whitespace-nowrap hover:bg-green-700 transition-colors">
-                {isScraping ? "Vykdoma..." : "Scrape Now 🚀"}
+              <button 
+                onClick={handleTriggerScrape} 
+                disabled={isScraping} 
+                className={`${confirmScrape ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white px-6 py-2.5 rounded-lg text-sm font-bold disabled:opacity-50 h-[42px] whitespace-nowrap transition-colors`}
+              >
+                {isScraping ? "Vykdoma..." : confirmScrape ? "Tikrai?" : "Scrape Now 🚀"}
               </button>
               <button onClick={handleSaveSettings} disabled={isSavingSettings} className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold disabled:opacity-50 h-[42px] whitespace-nowrap hover:bg-indigo-700 transition-colors">
                 {isSavingSettings ? "Saugoma..." : "Išsaugoti"}
