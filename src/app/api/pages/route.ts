@@ -11,9 +11,14 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = (session.user as any).id;
+  if (!userId) {
+    return NextResponse.json({ error: "Vartotojo ID nerastas sesijoje" }, { status: 400 });
+  }
+
   const res = await db().execute({
     sql: "SELECT * FROM monitored_pages WHERE user_id = ? ORDER BY created_at DESC",
-    args: [session.user.id as string]
+    args: [userId]
   });
 
   return NextResponse.json(res.rows);
@@ -36,7 +41,7 @@ export async function POST(req: Request) {
 
   await db().execute({
     sql: "INSERT INTO monitored_pages (id, user_id, url, name, discord_webhook_url, status) VALUES (?, ?, ?, ?, ?, 'active')",
-    args: [id, session.user.id as string, url, name || null, discord_webhook_url || null]
+    args: [id, (session.user as any).id, url, name || null, discord_webhook_url || null]
   });
 
   return NextResponse.json({ success: true, id });
@@ -53,12 +58,12 @@ export async function DELETE(req: Request) {
   const id = searchParams.get("id");
 
   if (!id) {
-    return NextResponse.json({ error: "ID mirror privalomas" }, { status: 400 });
+    return NextResponse.json({ error: "ID yra privalomas" }, { status: 400 });
   }
 
   await db().execute({
     sql: "DELETE FROM monitored_pages WHERE id = ? AND user_id = ?",
-    args: [id, session.user.id as string]
+    args: [id, (session.user as any).id]
   });
 
   return NextResponse.json({ success: true });

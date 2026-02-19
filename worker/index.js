@@ -115,7 +115,12 @@ async function scrapePage(browser, pageData) {
 async function run() {
   console.log("Starting scraper at", new Date().toLocaleString());
   
-  const res = await db.execute("SELECT * FROM monitored_pages WHERE status = 'active'");
+  const res = await db.execute(`
+    SELECT mp.*, u.default_discord_webhook_url 
+    FROM monitored_pages mp
+    JOIN users u ON mp.user_id = u.id
+    WHERE mp.status = 'active'
+  `);
   const pagesToScrape = res.rows;
 
   if (pagesToScrape.length === 0) {
@@ -136,8 +141,11 @@ async function run() {
       if (postInfo.postUrl !== pageRow.last_post_id) {
         console.log(`New post found for ${pageRow.name}: ${postInfo.postUrl}`);
         
+        // Prioritetas: 1. Puslapio webhook, 2. Globalus vartotojo webhook, 3. .env webhook
+        const webhookUrl = pageRow.discord_webhook_url || pageRow.default_discord_webhook_url || process.env.DISCORD_WEBHOOK_URL;
+
         await sendDiscordNotification(
-          pageRow.discord_webhook_url,
+          webhookUrl,
           pageRow.name || "Facebook Puslapis",
           postInfo.postUrl,
           postInfo.text,
