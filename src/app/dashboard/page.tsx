@@ -30,7 +30,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isScraping, setIsScraping] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, string>>({});
+  const [isEnvSet, setIsEnvSet] = useState(false);
+  
+  // Test Scrape (Live) States
   const [isTestingScrape, setIsTestingScrape] = useState(false);
   const [scrapeResults, setScrapeResults] = useState<PostPreview[] | null>(null);
   const [showScrapeModal, setShowScrapeModal] = useState(false);
@@ -52,6 +56,7 @@ export default function Dashboard() {
     if (res.ok) {
       const data = await res.json();
       setGlobalWebhook(data.default_discord_webhook_url || "");
+      setIsEnvSet(data.isEnvSet || false);
     }
   }, []);
 
@@ -83,6 +88,21 @@ export default function Dashboard() {
     });
     setIsSavingSettings(false);
     alert("Nustatymai išsaugoti!");
+  };
+
+  const handleTriggerScrape = async () => {
+    if (!confirm("Ar tikrai norite paleisti scraper'į dabar? Tai inicijuos GitHub Action.")) return;
+    setIsScraping(true);
+    const res = await fetch("/api/trigger-scrape", { method: "POST" });
+    const data = await res.json();
+    setIsScraping(false);
+    
+    if (res.ok) {
+        alert("✅ Sėkmė: " + data.message);
+    } else {
+        alert("❌ Klaida: " + (data.error || "Nepavyko paleisti."));
+        console.error(data);
+    }
   };
 
   const handleAddPage = async (e: React.FormEvent) => {
@@ -268,19 +288,34 @@ export default function Dashboard() {
         <div className="mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
           <h2 className="text-lg font-bold mb-4">Bendri nustatymai</h2>
           <div className="flex flex-col sm:flex-row gap-4 items-end">
-            <div className="flex-1 w-full">
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Bendras Discord Webhook URL</label>
-              <input
-                type="url"
-                placeholder="https://discord.com/api/webhooks/..."
-                className="w-full rounded-lg border-gray-300 border p-2.5 text-sm outline-none"
-                value={globalWebhook}
-                onChange={(e) => setGlobalWebhook(e.target.value)}
-              />
+            <div className="flex-1 w-full relative">
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                Bendras Discord Webhook URL
+                {isEnvSet && !globalWebhook && (
+                  <span className="ml-2 text-green-600 normal-case">(Nustatyta serveryje)</span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  type="password"
+                  placeholder={globalWebhook ? "********" : "https://discord.com/api/webhooks/..."}
+                  className="w-full rounded-lg border-gray-300 border p-2.5 text-sm outline-none pr-10"
+                  value={globalWebhook}
+                  onChange={(e) => setGlobalWebhook(e.target.value)}
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-400">
+                Palikite tuščią, jei norite naudoti serverio aplinkos kintamąjį (ENV).
+              </p>
             </div>
-            <button onClick={handleSaveSettings} disabled={isSavingSettings} className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold disabled:opacity-50">
-              {isSavingSettings ? "Saugoma..." : "Išsaugoti"}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={handleTriggerScrape} disabled={isScraping} className="bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold disabled:opacity-50 h-[42px] whitespace-nowrap hover:bg-green-700 transition-colors">
+                {isScraping ? "Vykdoma..." : "Scrape Now 🚀"}
+              </button>
+              <button onClick={handleSaveSettings} disabled={isSavingSettings} className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold disabled:opacity-50 h-[42px] whitespace-nowrap hover:bg-indigo-700 transition-colors">
+                {isSavingSettings ? "Saugoma..." : "Išsaugoti"}
+              </button>
+            </div>
           </div>
         </div>
 

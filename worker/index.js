@@ -56,48 +56,80 @@ async function scrapePage(browser, pageData) {
       // Find all articles
       const articles = Array.from(document.querySelectorAll('[role="article"]'));
       
-      // Filter for articles that actually look like posts (usually have a timestamp or specific text length)
-      const actualPosts = articles.filter(art => {
-        const text = art.innerText || "";
-        // Posts usually have some content and a link to /posts/ or pfbid
-        const hasPostLink = !!art.querySelector('a[href*="/posts/"], a[href*="pfbid"]');
-        return text.length > 20 && hasPostLink;
-      });
+      const now = new Date();
+      // User request: 1 hour threshold as scraper runs every 30 mins
+      const ONE_HOUR_MS = 60 * 60 * 1000;
 
-      const firstPost = actualPosts[0];
-      if (!firstPost) return null;
-
-      // Try to find the link/ID
-      const linkTag = Array.from(firstPost.querySelectorAll('a')).find(a => a.href.includes('/posts/') || a.href.includes('pfbid'));
-      const postUrl = linkTag ? linkTag.href.split('?')[0] : null;
-      
-      // Text content - try multiple common FB selectors
-      const textSelectors = [
-        '[data-ad-preview="message"]',
-        '[data-testid="post_message"]',
-        '.x1iorvi4.x1pi3ozi.x1swvt1m', // Common FB post text class
-        'div[dir="auto"]'
-      ];
-      
-      let text = "";
-      for (const selector of textSelectors) {
-        const el = firstPost.querySelector(selector);
-        if (el && el.innerText) {
-          text = el.innerText;
-          break;
+      // Helper to parse relative time or date
+      const parseFacebookDate = (dateStr) => {
+        if (!dateStr) return null;
+        dateStr = dateStr.toLowerCase().trim();
+        
+        // Relative time: "2 h", "2 val.", "5 min", "Just now"
+        if (dateStr.includes('just now') || dateStr.includes('ką tik')) return new Date();
+        
+        const timeMatch = dateStr.match(/(\d+)\s*(m|min|h|val|d)/);
+        if (timeMatch) {
+            const val = parseInt(timeMatch[1]);
+            const unit = timeMatch[2];
+            const d = new Date();
+            if (unit.startsWith('m')) d.setMinutes(d.getMinutes() - val);
+            if (unit.startsWith('h') || unit.startsWith('v')) d.setHours(d.getHours() - val);
+            if (unit.startsWith('d')) d.setDate(d.getDate() - val);
+            return d;
         }
+
+        // Absolute date: "20 January at 12:00", "Yesterday at 10:00"
+        if (dateStr.includes('yesterday') || dateStr.includes('vakar')) {
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            return d; // Approximate time is fine for >24h check
+        }
+        
+        // Try parsing direct date string
+        const parsed = Date.parse(dateStr);
+        if (!isNaN(parsed)) return new Date(parsed);
+
+        return null; 
+      };
+
+      for (const art of articles) {
+        const textEl = art.querySelector('[data-ad-preview="message"]') || 
+                       art.querySelector('[data-testid="post_message"]') || 
+                       art.querySelector('div[dir="auto"]');
+        
+        // Find links that look like timestamps
+        const allLinks = Array.from(art.querySelectorAll('a'));
+        const timeLink = allLinks.find(a => {
+            const href = a.getAttribute('href') || "";
+            const text = a.innerText.trim();
+            // Link to post/video/reel + short text
+            return (href.includes('/posts/') || href.includes('/videos/') || href.includes('/reel/') || href.includes('pfbid')) &&
+                   text.length > 0 && text.length < 30 &&
+                   !href.includes('/hashtag/'); 
+        });
+
+        if (!timeLink) continue; // Skip if we can't find a timestamp/link
+
+        const postDate = parseFacebookDate(timeLink.innerText);
+        const isOld = postDate && (now - postDate > ONE_HOUR_MS);
+
+        if (isOld) {
+            // Found a post, but it's old (older than 1h). 
+            // If it's the very first post, it might be Pinned. Continue searching.
+            continue; 
+        }
+
+        // Found a fresh post!
+        const postUrl = timeLink.href.split('?')[0];
+        const text = textEl ? textEl.innerText : art.innerText.substring(0, 500);
+        const imgElement = art.querySelector('img[src*="fbcdn"]');
+        const imageUrl = imgElement ? imgElement.src : null;
+
+        return { postUrl, text, imageUrl };
       }
 
-      // If no specific text element found, take a snippet of the article innerText
-      if (!text) {
-        text = firstPost.innerText.substring(0, 500);
-      }
-
-      // Image
-      const imgElement = firstPost.querySelector('img[src*="fbcdn"]');
-      const imageUrl = imgElement ? imgElement.src : null;
-
-      return { postUrl, text, imageUrl };
+      return null; // No fresh posts found
     });
 
     if (!postInfo || !postInfo.postUrl) {

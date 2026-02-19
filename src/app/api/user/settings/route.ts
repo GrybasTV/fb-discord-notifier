@@ -20,7 +20,11 @@ export async function GET() {
     args: [userId]
   });
 
-  return NextResponse.json(res.rows[0] || { default_discord_webhook_url: null });
+  const row = res.rows[0] || {};
+  return NextResponse.json({
+    default_discord_webhook_url: row.default_discord_webhook_url || null,
+    isEnvSet: !!process.env.DISCORD_WEBHOOK_URL
+  });
 }
 
 export async function POST(req: Request) {
