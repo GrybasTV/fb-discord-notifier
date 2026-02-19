@@ -5,23 +5,37 @@ import { db } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
+  try {
+    console.log("[API/PAGES] GET request");
 
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const session = await getServerSession(authOptions);
+    console.log("[API/PAGES] Session:", !!session);
+
+    if (!session?.user) {
+      console.log("[API/PAGES] Unauthorized - no session");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id;
+    console.log("[API/PAGES] User ID:", userId);
+
+    if (!userId) {
+      console.log("[API/PAGES] No user ID in session");
+      return NextResponse.json({ error: "Vartotojo ID nerastas sesijoje" }, { status: 400 });
+    }
+
+    console.log("[API/PAGES] Querying DB for pages...");
+    const res = await db().execute({
+      sql: "SELECT * FROM monitored_pages WHERE user_id = ? ORDER BY created_at DESC",
+      args: [userId]
+    });
+
+    console.log("[API/PAGES] Found pages:", res.rows.length);
+    return NextResponse.json(res.rows);
+  } catch (error) {
+    console.error("[API/PAGES] Error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-
-  const userId = session.user.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Vartotojo ID nerastas sesijoje" }, { status: 400 });
-  }
-
-  const res = await db().execute({
-    sql: "SELECT * FROM monitored_pages WHERE user_id = ? ORDER BY created_at DESC",
-    args: [userId]
-  });
-
-  return NextResponse.json(res.rows);
 }
 
 export async function POST(req: Request) {

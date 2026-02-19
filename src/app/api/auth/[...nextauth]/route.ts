@@ -18,6 +18,15 @@ declare module "next-auth/jwt" {
   }
 }
 
+// Check required environment variables
+if (!process.env.NEXTAUTH_SECRET) {
+  console.error("[NEXTAUTH] NEXTAUTH_SECRET is not defined!");
+}
+if (!process.env.NEXTAUTH_URL) {
+  console.warn("[NEXTAUTH] NEXTAUTH_URL is not defined, using default");
+}
+console.log("[NEXTAUTH] Env check - SECRET:", !!process.env.NEXTAUTH_SECRET, "URL:", !!process.env.NEXTAUTH_URL);
+
 export const authOptions = {
   providers: [
     CredentialsProvider({
@@ -27,34 +36,54 @@ export const authOptions = {
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        try {
+          console.log("[NEXTAUTH] Authorize attempt:", credentials?.email);
+
+          if (!credentials?.email || !credentials?.password) {
+            console.log("[NEXTAUTH] Missing credentials");
+            return null;
+          }
+
+          // Check env vars
+          if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
+            console.error("[NEXTAUTH] Missing TURSO env vars");
+            return null;
+          }
+
+          console.log("[NEXTAUTH] Querying DB for user:", credentials.email);
+          const res = await db().execute({
+            sql: "SELECT * FROM users WHERE email = ? LIMIT 1",
+            args: [credentials.email]
+          });
+
+          const user = res.rows[0];
+          console.log("[NEXTAUTH] User found:", !!user);
+
+          if (!user || typeof user.password_hash !== 'string') {
+            console.log("[NEXTAUTH] Invalid user or password hash");
+            return null;
+          }
+
+          console.log("[NEXTAUTH] Comparing password...");
+          const isPasswordCorrect = await bcrypt.compare(
+            credentials.password,
+            user.password_hash
+          );
+
+          if (!isPasswordCorrect) {
+            console.log("[NEXTAUTH] Password incorrect");
+            return null;
+          }
+
+          console.log("[NEXTAUTH] Login successful:", user.email);
+          return {
+            id: user.id as string,
+            email: user.email as string,
+          };
+        } catch (error) {
+          console.error("[NEXTAUTH] Authorize error:", error);
           return null;
         }
-
-        const res = await db().execute({
-          sql: "SELECT * FROM users WHERE email = ? LIMIT 1",
-          args: [credentials.email]
-        });
-
-        const user = res.rows[0];
-
-        if (!user || typeof user.password_hash !== 'string') {
-          return null;
-        }
-
-        const isPasswordCorrect = await bcrypt.compare(
-          credentials.password,
-          user.password_hash
-        );
-
-        if (!isPasswordCorrect) {
-          return null;
-        }
-
-        return {
-          id: user.id as string,
-          email: user.email as string,
-        };
       }
     })
   ],
