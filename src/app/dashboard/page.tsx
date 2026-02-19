@@ -35,6 +35,9 @@ export default function Dashboard() {
   const [scrapeResults, setScrapeResults] = useState<PostPreview[] | null>(null);
   const [showScrapeModal, setShowScrapeModal] = useState(false);
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
+  const [testScrapeLogs, setTestScrapeLogs] = useState<string[]>([]);
+  const [showConsole, setShowConsole] = useState(false);
+  const [testScrapeStatus, setTestScrapeStatus] = useState<string>("idle"); // idle, starting, polling, completed, error
 
   const fetchPages = useCallback(async () => {
     const res = await fetch("/api/pages");
@@ -138,7 +141,19 @@ export default function Dashboard() {
     }
 
     setIsTestingScrape(true);
+    setTestScrapeLogs([]);
+    setShowConsole(true);
+    setTestScrapeStatus("starting");
+
+    const addLog = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setTestScrapeLogs(prev => [...prev, `[${timestamp}] ${message}`]);
+    };
+
     try {
+      addLog("🚀 Paleidžiamas testas...");
+      addLog(`📄 URL: ${url}`);
+
       // Start test scrape
       const res = await fetch("/api/test-scrape", {
         method: "POST",
@@ -149,27 +164,41 @@ export default function Dashboard() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        alert(data.error || "Nepavyko paleisti testo");
+        addLog(`❌ Klaida: ${data.error || "Nepavyko paleisti testo"}`);
+        setTestScrapeStatus("error");
         setIsTestingScrape(false);
         return;
       }
 
       const requestId = data.requestId;
       setCurrentRequestId(requestId);
+      addLog(`✅ Testas sukurtas (Request ID: ${requestId.substring(0, 8)}...)`);
+      addLog("⏳ Laukiama GitHub Actions...");
+      setTestScrapeStatus("polling");
+
+      let pollCount = 0;
+      const maxPolls = 40; // 2 minutes (40 * 3 seconds)
 
       // Poll for results
       const pollInterval = setInterval(async () => {
+        pollCount++;
+        addLog(`🔍 Tikrinama būsena (${pollCount}/${maxPolls})...`);
+
         const statusRes = await fetch(`/api/test-scrape?requestId=${requestId}`);
         const statusData = await statusRes.json();
 
         if (statusData.status === "completed") {
           clearInterval(pollInterval);
+          setTestScrapeStatus("completed");
+          addLog("✅ GitHub Actions baigė!");
+          addLog(`📊 Rasta ${Array.isArray(statusData.posts) ? statusData.posts.length : 0} postų`);
           setIsTestingScrape(false);
 
           // Validate posts is an array
           if (Array.isArray(statusData.posts)) {
             setScrapeResults(statusData.posts);
             setShowScrapeModal(true);
+            addLog("💾 Peržiūrėta pažymėta automatiškai");
 
             // Automatically mark as viewed
             try {
@@ -179,34 +208,35 @@ export default function Dashboard() {
                 body: JSON.stringify({ requestId }),
               });
             } catch (e) {
-              console.error("Failed to mark as viewed:", e);
+              addLog("⚠️ Nepavyko pažymėti kaip peržiūrėtą");
             }
 
             // Refresh pages to show updated last_viewed
             fetchPages();
           } else {
-            alert("Netinkami postų duomenys");
+            addLog("❌ Netinkami postų duomenys");
           }
         } else if (statusData.status === "error") {
           clearInterval(pollInterval);
-          setIsTestingScrape(false);
+          setTestScrapeStatus("error");
           const errorMsg = statusData.posts?.error || "Nepavyko nuskaityti puslapio";
-          alert("Klaida: " + errorMsg);
+          addLog(`❌ Klaida: ${errorMsg}`);
+          setIsTestingScrape(false);
         }
-        // If still pending, continue polling
+
+        // Timeout after 2 minutes
+        if (pollCount >= maxPolls) {
+          clearInterval(pollInterval);
+          setTestScrapeStatus("error");
+          addLog("⏰ Testas užtruko per ilgai (timeout)");
+          setIsTestingScrape(false);
+        }
       }, 3000); // Poll every 3 seconds
 
-      // Timeout after 2 minutes
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        if (isTestingScrape) {
-          setIsTestingScrape(false);
-          alert("Testas užtruko per ilgai. Pabandykite vėliau.");
-        }
-      }, 120000);
     } catch (error) {
+      addLog(`❌ Klaida: ${error instanceof Error ? error.message : "Unknown error"}`);
+      setTestScrapeStatus("error");
       setIsTestingScrape(false);
-      alert("Klaida: " + (error instanceof Error ? error.message : "Unknown error"));
     }
   };
 
@@ -280,9 +310,16 @@ export default function Dashboard() {
                     type="button"
                     onClick={handleTestScrape}
                     disabled={isTestingScrape || !url}
-                    className="flex-1 bg-gray-600 text-white rounded-lg py-2.5 text-sm font-bold disabled:opacity-50"
+                    className={`flex-1 rounded-lg py-2.5 text-sm font-bold disabled:opacity-50 ${
+                      testScrapeStatus === 'completed' ? 'bg-green-600 text-white' :
+                      testScrapeStatus === 'error' ? 'bg-red-600 text-white' :
+                      'bg-gray-600 text-white'
+                    }`}
                   >
-                    {isTestingScrape ? "Testuojama..." : "Testuoti"}
+                    {testScrapeStatus === 'completed' ? '✅ Baigta' :
+                     testScrapeStatus === 'error' ? '❌ Klaida' :
+                     testScrapeStatus === 'polling' ? '⏳ Vykdoma...' :
+                     isTestingScrape ? '🔄 Startuojama...' : '🔍 Testuoti'}
                   </button>
                   <button type="submit" disabled={isAdding} className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-bold disabled:opacity-50">
                     {isAdding ? "Pridedama..." : "Pridėti"}
@@ -346,6 +383,42 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* Debug Console */}
+        {testScrapeLogs.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 bg-gray-900 text-green-400 font-mono text-xs shadow-lg border-t border-gray-700 z-40">
+            <div className="flex items-center justify-between px-4 py-2 bg-gray-800 cursor-pointer" onClick={() => setShowConsole(!showConsole)}>
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🖥️</span>
+                <span className="font-bold">Debug Console</span>
+                <span className={`px-2 py-0.5 rounded text-xs ${
+                  testScrapeStatus === 'completed' ? 'bg-green-600' :
+                  testScrapeStatus === 'error' ? 'bg-red-600' :
+                  testScrapeStatus === 'polling' ? 'bg-yellow-600' :
+                  'bg-gray-600'
+                }`}>
+                  {testScrapeStatus === 'completed' ? '✅ Baigta' :
+                   testScrapeStatus === 'error' ? '❌ Klaida' :
+                   testScrapeStatus === 'polling' ? '⏳ Vykdoma' :
+                   '⏸️ Idle'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>{testScrapeLogs.length} log entries</span>
+                <span className="text-xl">{showConsole ? '▼' : '▲'}</span>
+              </div>
+            </div>
+            {showConsole && (
+              <div className="max-h-48 overflow-y-auto p-4 space-y-1">
+                {testScrapeLogs.map((log, index) => (
+                  <div key={index} className="hover:bg-gray-800 px-2 py-0.5 rounded">
+                    {log}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Scrape Results Modal */}
         {showScrapeModal && scrapeResults && Array.isArray(scrapeResults) && (
