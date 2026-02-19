@@ -44,7 +44,7 @@ export async function POST() {
     await axios.post(
       `https://api.github.com/repos/${repoString}/actions/workflows/${workflowId}/dispatches`,
       {
-        ref: "main", // The branch to run on
+        ref: "master", // The branch to run on
       },
       {
         headers: {
