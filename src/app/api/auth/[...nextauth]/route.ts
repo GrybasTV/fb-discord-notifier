@@ -16,7 +16,7 @@ export const authOptions = {
           return null;
         }
 
-        const res = await db.execute({
+        const res = await db().execute({
           sql: "SELECT * FROM users WHERE email = ? LIMIT 1",
           args: [credentials.email]
         });

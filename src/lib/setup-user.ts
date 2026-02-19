@@ -11,7 +11,7 @@ async function setup() {
   const id = uuidv4();
 
   try {
-    await db.execute({
+    await db().execute({
       sql: "INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
       args: [id, email, hash]
     });

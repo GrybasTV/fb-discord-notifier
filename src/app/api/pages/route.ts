@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const res = await db.execute({
+  const res = await db().execute({
     sql: "SELECT * FROM monitored_pages WHERE user_id = ? ORDER BY created_at DESC",
     args: [session.user.id as string]
   });
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
   const id = uuidv4();
 
-  await db.execute({
+  await db().execute({
     sql: "INSERT INTO monitored_pages (id, user_id, url, name, discord_webhook_url, status) VALUES (?, ?, ?, ?, ?, 'active')",
     args: [id, session.user.id as string, url, name || null, discord_webhook_url || null]
   });
@@ -56,7 +56,7 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "ID mirror privalomas" }, { status: 400 });
   }
 
-  await db.execute({
+  await db().execute({
     sql: "DELETE FROM monitored_pages WHERE id = ? AND user_id = ?",
     args: [id, session.user.id as string]
   });
