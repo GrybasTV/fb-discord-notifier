@@ -16,6 +16,7 @@ interface PostPreview {
   postUrl: string | null;
   text: string;
   imageUrl: string | null;
+  date: string;
 }
 
 export default function Dashboard() {
@@ -312,7 +313,7 @@ export default function Dashboard() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
               <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-                <h3 className="text-lg font-bold">Paskutiniai įrašai ({scrapeResults.length})</h3>
+                <h3 className="text-lg font-bold">Paskutiniai įrašai (10)</h3>
                 <button onClick={() => setShowScrapeModal(false)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
               </div>
               <div className="p-4 space-y-4">
@@ -323,6 +324,14 @@ export default function Dashboard() {
                         <img src={post.imageUrl} alt="" className="w-20 h-20 object-cover rounded" />
                       )}
                       <div className="flex-1">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                            #{index + 1}
+                          </span>
+                          <span className="text-xs text-gray-500 font-semibold">
+                            {post.date !== 'N/A' ? `📅 ${post.date}` : ''}
+                          </span>
+                        </div>
                         <p className="text-sm text-gray-700 mb-2">{post.text}</p>
                         {post.postUrl && (
                           <a href={post.postUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">

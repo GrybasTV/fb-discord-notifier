@@ -48,7 +48,7 @@ async function testScrapeAndSave() {
         return elem.innerText && elem.innerText.length > 50;
       });
 
-      return realPosts.slice(0, 3).map((post) => {
+      return realPosts.slice(0, 10).map((post) => {
         const elem = post;
         const linkTag = Array.from(post.querySelectorAll('a')).find(
           (a) => a.href.includes('/posts/') || a.href.includes('pfbid') || a.href.includes('/reel/')
@@ -65,10 +65,26 @@ async function testScrapeAndSave() {
         const imgElement = post.querySelector('img[src*="fbcdn"]');
         const imageUrl = imgElement ? imgElement.src : null;
 
+        // Try to extract date from Facebook timestamps
+        let dateStr = null;
+        const timestampElement = post.querySelector('[data-visualcompletion="ignore-dynamic"] style');
+        const timeTag = post.querySelector('time') || post.querySelector('span[role="text"]');
+
+        if (timeTag && timeTag.getAttribute('datetime')) {
+          dateStr = timeTag.getAttribute('datetime');
+        } else {
+          // Try to find relative time in text (e.g., "2d", "3h", "1w")
+          const match = text.match(/(\d+)([hdw]|val|min)/i);
+          if (match) {
+            dateStr = match[0]; // Store the relative time string
+          }
+        }
+
         return {
           postUrl,
           text: text.substring(0, 500),
           imageUrl,
+          date: dateStr || 'N/A',
         };
       });
     });
