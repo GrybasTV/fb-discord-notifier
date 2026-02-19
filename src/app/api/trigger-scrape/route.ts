@@ -47,10 +47,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, message: "Scraperis paleistas! Tai gali užtrukti kelias minutes." });
   } catch (error: any) {
-    console.error("GitHub Dispatch Error:", error.response?.data || error.message);
+    console.error("GitHub Dispatch Error Status:", error.response?.status);
+    console.error("GitHub Dispatch Error Data:", JSON.stringify(error.response?.data, null, 2));
+    
     return NextResponse.json({ 
-        error: "Nepavyko paleisti GitHub Action. Patikrinkite GITHUB_TOKEN teises ir Workflow failo pavadinimą.",
-        details: error.response?.data?.message
+        error: "Nepavyko paleisti GitHub Action.",
+        details: error.response?.data?.message || error.message,
+        status: error.response?.status
     }, { status: 500 });
   }
 }
