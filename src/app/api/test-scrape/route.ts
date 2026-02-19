@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       );
     }
 
-    await fetch(workflowUrl, {
+    const githubRes = await fetch(workflowUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${githubToken}`,
@@ -60,13 +60,19 @@ export async function POST(req: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        ref: "master",
+        ref: "master", // Arba "main", priklausomai nuo jūsų default branch
         inputs: {
           url: url,
           request_id: requestId,
         },
       }),
     });
+
+    if (!githubRes.ok) {
+      const errorText = await githubRes.text();
+      console.error(`GitHub API Error: ${githubRes.status} ${errorText}`);
+      throw new Error(`GitHub API nepriėmė užklausos: ${githubRes.status} ${errorText}`);
+    }
 
     return NextResponse.json({
       success: true,
