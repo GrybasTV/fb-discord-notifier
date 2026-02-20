@@ -52,7 +52,9 @@ async function scrapePage(browser, pageData) {
     const postSelector = '[role="article"]';
     await page.waitForSelector(postSelector, { timeout: 10000 });
 
-    const postInfo = await page.evaluate(() => {
+    const lastViewed = pageData.last_viewed_post_url || pageData.last_post_id;
+
+    const postInfo = await page.evaluate((lastViewedParam) => {
       // Find all articles
       const articles = Array.from(document.querySelectorAll('[role="article"]'));
       
@@ -93,6 +95,8 @@ async function scrapePage(browser, pageData) {
         return null; 
       };
 
+      const foundPosts = [];
+
       for (const art of articles) {
         const textEl = art.querySelector('[data-ad-preview="message"]') || 
                        art.querySelector('[data-testid="post_message"]') || 
@@ -110,6 +114,13 @@ async function scrapePage(browser, pageData) {
         });
 
         if (!timeLink) continue; // Skip if we can't find a timestamp/link
+        
+        const postUrl = timeLink.href.split('?')[0];
+
+        if (postUrl === lastViewedParam) {
+            // Pasiekėme paskutinį kartą matytą įrašą. Fiksuojam ką turim ir lipam lauk.
+            break;
+        }
 
         const postDate = parseFacebookDate(timeLink.innerText);
         const isOld = postDate && (now - postDate > ONE_HOUR_MS);
@@ -121,12 +132,15 @@ async function scrapePage(browser, pageData) {
         }
 
         // Found a fresh post!
-        const postUrl = timeLink.href.split('?')[0];
         const text = textEl ? textEl.innerText : art.innerText.substring(0, 500);
         const imgElement = art.querySelector('img[src*="fbcdn"]');
         const imageUrl = imgElement ? imgElement.src : null;
 
-        return { found: true, postUrl, text, imageUrl };
+        foundPosts.push({ postUrl, text, imageUrl });
+      }
+
+      if (foundPosts.length > 0) {
+        return { found: true, posts: foundPosts };
       }
 
       // Jei praėjome visus postus, bet visi buvo per seni arba be tvarkingų laikų
@@ -139,8 +153,8 @@ async function scrapePage(browser, pageData) {
         if (timeLink) oldPostDateStr = timeLink.innerText.trim();
       }
 
-      return { found: false, reason: `Nerasta naujų įrašų (<1h). Naujausias įrašas: ${oldPostDateStr}` };
-    });
+      return { found: false, reason: `Nerasta naujų įrašų (<1h). Naujausias matytas įrašas sistemoje arba pagal FB datą: ${oldPostDateStr}` };
+    }, lastViewed);
 
     if (!postInfo) {
       return { found: false, reason: "Nepavyko nuskaityti puslapio struktūros" };
@@ -190,31 +204,45 @@ async function run() {
         continue;
       }
 
-      // Use last_viewed_post_url to check if there's a new post
-      // If last_viewed is null, use last_post_id as fallback
       const lastViewed = pageRow.last_viewed_post_url || pageRow.last_post_id;
 
-      if (postInfo.postUrl !== lastViewed) {
-        console.log(`New post found for ${pageRow.name}: ${postInfo.postUrl} (last viewed: ${lastViewed || 'none'})`);
+      let hasNewForDb = false;
+      let newestPostUrl = lastViewed;
 
-        // Prioritetas: 1. Puslapio webhook, 2. Globalus vartotojo webhook, 3. .env webhook
-        const webhookUrl = pageRow.discord_webhook_url || pageRow.default_discord_webhook_url || process.env.DISCORD_WEBHOOK_URL;
+      // Facebookas rodo naujausius viršuje, o masyvas 'posts' taip pat prasideda nuo naujausio.
+      // Atbuline tvarka pereisime, kad Discord gautų kronologiškai teisingai (nuo senesnio prie naujesnio šviežio).
+      const postsToProcess = postInfo.posts.reverse();
 
-        await sendDiscordNotification(
-          webhookUrl,
-          pageRow.name || "Facebook Puslapis",
-          postInfo.postUrl,
-          postInfo.text,
-          postInfo.imageUrl
-        );
+      for (const post of postsToProcess) {
+        if (post.postUrl !== lastViewed) {
+          console.log(`New post found for ${pageRow.name}: ${post.postUrl}`);
+          hasNewForDb = true;
+          // Šis bus pats paskutinis (naujausias) dėl chronologinės tvarkos išlaikymo
+          newestPostUrl = post.postUrl;
 
-        // Update both last_post_id and last_viewed_post_url
+          const webhookUrl = pageRow.discord_webhook_url || pageRow.default_discord_webhook_url || process.env.DISCORD_WEBHOOK_URL;
+
+          await sendDiscordNotification(
+            webhookUrl,
+            pageRow.name || "Facebook Puslapis",
+            post.postUrl,
+            post.text,
+            post.imageUrl
+          );
+          
+          // Add delay to prevent discord rate limits
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+
+      if (hasNewForDb) {
+        // Išsaugome tik naujausiąjį postUrl kaip last_viewed, kad kitą kartą nereikėtų kartoti
         await db.execute({
           sql: "UPDATE monitored_pages SET last_post_id = ?, last_viewed_post_url = ?, last_checked = CURRENT_TIMESTAMP WHERE id = ?",
-          args: [postInfo.postUrl, postInfo.postUrl, pageRow.id]
+          args: [newestPostUrl, newestPostUrl, pageRow.id]
         });
       } else {
-        console.log(`No new posts for ${pageRow.name} (already viewed: ${lastViewed})`);
+        console.log(`No completely new posts for ${pageRow.name} to send (all already viewed: ${lastViewed})`);
         await db.execute({
           sql: "UPDATE monitored_pages SET last_checked = CURRENT_TIMESTAMP WHERE id = ?",
           args: [pageRow.id]
