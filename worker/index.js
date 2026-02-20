@@ -126,14 +126,24 @@ async function scrapePage(browser, pageData) {
         const imgElement = art.querySelector('img[src*="fbcdn"]');
         const imageUrl = imgElement ? imgElement.src : null;
 
-        return { postUrl, text, imageUrl };
+        return { found: true, postUrl, text, imageUrl };
       }
 
-      return null; // No fresh posts found
+      // Jei praėjome visus postus, bet visi buvo per seni arba be tvarkingų laikų
+      const firstArticle = articles[0];
+      let oldPostDateStr = "Nežinoma";
+      if (firstArticle) {
+        const timeLink = Array.from(firstArticle.querySelectorAll('a')).find(
+           a => (a.href.includes('/posts/') || a.href.includes('/videos/') || a.href.includes('/reel/') || a.href.includes('pfbid')) && a.innerText.trim().length > 0 && a.innerText.trim().length < 30
+        );
+        if (timeLink) oldPostDateStr = timeLink.innerText.trim();
+      }
+
+      return { found: false, reason: `Nerasta naujų įrašų (<1h). Naujausias įrašas: ${oldPostDateStr}` };
     });
 
-    if (!postInfo || !postInfo.postUrl) {
-      throw new Error("Could not extract post info");
+    if (!postInfo) {
+      return { found: false, reason: "Nepavyko nuskaityti puslapio struktūros" };
     }
 
     return postInfo;
@@ -169,6 +179,16 @@ async function run() {
     console.log(`Scraping ${pageRow.name || pageRow.url}...`);
     try {
       const postInfo = await scrapePage(browser, pageRow);
+
+      if (!postInfo.found) {
+        console.log(`Puslapis ${pageRow.name || pageRow.url}: ${postInfo.reason}`);
+        // Kadangi jokių techninių klaidų nėra (tiesiog nėra naujų postų), pažymime kaip active ir atnaujiname laiką
+        await db.execute({
+          sql: "UPDATE monitored_pages SET status = 'active', last_checked = CURRENT_TIMESTAMP WHERE id = ?",
+          args: [pageRow.id]
+        });
+        continue;
+      }
 
       // Use last_viewed_post_url to check if there's a new post
       // If last_viewed is null, use last_post_id as fallback

@@ -1,5 +1,9 @@
 name: Facebook Scraper
 on:
+  push:
+    branches:
+      - master
+      - main
   schedule:
     - cron: "*/30 * * * *" # Every 30 minutes
   workflow_dispatch: # Manual run
